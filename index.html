@@ -21,6 +21,7 @@
     input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #263246;background:#0b1220;color:var(--text)}
     textarea{min-height:64px;resize:vertical}
     button{cursor:pointer;border:0;border-radius:12px;padding:10px 14px;font-weight:600}
+    button:disabled{opacity:.5;cursor:not-allowed}
     .btn{background:linear-gradient(90deg,#22c55e,#16a34a);color:#06110a}
     .btn.secondary{background:#1f2937;color:#e5e7eb;border:1px solid #374151}
     .btn.warn{background:linear-gradient(90deg,#f59e0b,#d97706);color:#0b0b0b}
@@ -46,8 +47,10 @@
     .settlement-list .negative {color:var(--danger);}
     .chart-container{padding:10px;height:300px;background:#0b1220;border-radius:10px}
     .chart-container canvas{width:100% !important;height:100% !important;}
+    .hidden { display: none !important; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-sha256@0.9.0/build/sha256.min.js"></script>
 </head>
 <body>
   <header>
@@ -55,6 +58,10 @@
       <h1>📒 Bazaarika – Partnership Ledger</h1>
       <span class="pill" id="status">Disconnected</span>
       <span class="pill" id="lastSync">Last sync: –</span>
+      <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+          <span id="userStatus" class="pill" style="color:#d1fae5; background:#10b981;">User: Guest</span>
+          <button id="adminLoginBtn" class="btn warn">Admin Login</button>
+      </div>
     </div>
   </header>
 
@@ -69,7 +76,7 @@
         <div class="footer">Calculated from synced data</div>
       </div>
 
-      <div class="card">
+      <div class="card" id="adminSettingsCard">
         <div class="row">
           <div style="flex:2 1 240px">
             <label for="blobUrl">JSONBlob URL</label>
@@ -87,7 +94,7 @@
     </section>
 
     <section class="grid g2">
-      <div class="card">
+      <div class="card" id="addPartnerCard">
         <h3 style="margin-top:0">👥 Partner जोड़ें</h3>
         <div class="row">
           <div>
@@ -112,7 +119,7 @@
         <div class="footer">Partner जोड़ने के बाद नीचे की सूची में दिखेगा।</div>
       </div>
 
-      <div class="card">
+      <div class="card" id="addEntryCard">
         <h3 style="margin-top:0">➕ Entry जोड़ें</h3>
         <div class="row">
           <div>
@@ -124,7 +131,7 @@
           </div>
           <div>
             <label>Amount (₹)</label>
-            <input id="eAmount" type="number" step="0.01" placeholder="1000" />
+            <input id="eAmount" type="number" step="0.01" min="0" placeholder="1000" />
           </div>
           <div>
             <label>Date</label>
@@ -245,14 +252,14 @@
   <script>
     // ====== Configuration ======
     const ImgbbAPIKey = '934c04f7429baab4fd5cd0ea4ad657e9';
+    const ADMIN_PASSWORD_HASH = sha256('Raj8434');
     const els = (sel,root=document)=>[...root.querySelectorAll(sel)];
     const $ = (sel,root=document)=>root.querySelector(sel);
 
-    let currentUser = { id: 'guest', role: 'member' }; // Default user
+    let currentUser = { id: 'guest', role: 'member' };
 
     const state = {
       data: null,
-      filtered: null,
       partnersMap: new Map(),
       partnerNetBalances: {},
     };
@@ -287,13 +294,16 @@
       $('#status').textContent = 'Connecting…';
       try{
         const res = await fetch(url, {headers:{'Accept':'application/json'}});
-        if(!res.ok) throw new Error('HTTP '+res.status);
+        if(!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+        }
         const json = await res.json().catch(()=>({}));
         if(!json || typeof json !== 'object' || !Array.isArray(json.partners) || !Array.isArray(json.entries)){
           state.data = { partners:[], entries:[], meta:{createdAt: new Date().toISOString()} };
           $('#status').textContent = 'Needs Init';
           $('#status').style.background = '#1f2937';
           $('#lastSync').textContent = 'Last sync: structure missing – click Initialize';
+          updateUIVisibility();
           renderAll();
           return;
         }
@@ -303,14 +313,7 @@
         $('#status').style.background = '#0b2e1a';
         $('#lastSync').textContent = 'Last sync: '+ new Date().toLocaleString();
         
-        // Check for admin role and update currentUser
-        const adminPartner = state.data.partners.find(p => p.role === 'admin');
-        if (adminPartner) {
-            currentUser = { id: adminPartner.id, role: 'admin' };
-        } else if (state.data.partners.length > 0) {
-            currentUser = { id: state.data.partners[0].id, role: 'member' };
-        }
-        
+        updateUIVisibility();
         renderAll();
       }catch(err){
         console.error(err);
@@ -320,11 +323,12 @@
           $('#status').textContent = 'Offline (cache)';
           $('#status').style.background = '#3f1d1d';
           $('#lastSync').textContent = 'Loaded from cache';
+          updateUIVisibility();
           renderAll();
         }else{
           $('#status').textContent = 'Error';
           $('#status').style.background = '#3f1d1d';
-          toast('Load failed');
+          toast('Load failed: Check URL');
         }
       }
     }
@@ -348,19 +352,27 @@
 
     async function initializeBlob(){
       if(!confirm('Initialize minimal structure if missing. Existing valid data will NOT be deleted. Continue?')) return;
+      if(currentUser.role !== 'admin') {
+          toast('Permission denied. Only admins can initialize.');
+          return;
+      }
       const url = getBlobUrl();
       let cur = null;
       try{
         const res = await fetch(url,{headers:{'Accept':'application/json'}});
         cur = await res.json().catch(()=>null);
       }catch{cur=null}
+      
+      let newData = {partners:[], entries:[], meta:{createdAt:new Date().toISOString(), app:'Bazaarika Ledger v2'}};
       if(cur && Array.isArray(cur.partners) && Array.isArray(cur.entries)){
-        toast('Already initialized');
-        state.data = cur; renderAll(); return;
+        toast('Already initialized. Merging...');
+        newData.partners = cur.partners;
+        newData.entries = cur.entries;
       }
-      state.data = {partners:[], entries:[], meta:{createdAt:new Date().toISOString(), app:'Bazaarika Ledger v2'}};
+      
+      state.data = newData;
       await saveData();
-      renderAll();
+      fetchData();
     }
 
     // ====== Rendering ======
@@ -371,7 +383,6 @@
 
     function calculateBalances(){
       const contribTotals = new Map();
-      const expTotals = new Map();
       const numPartners = state.data.partners.length;
       const totalExpense = state.data.entries.filter(e=>e.type==='expense').reduce((s,e)=>s+Number(e.amount||0),0);
       const equalExpenseShare = numPartners > 0 ? totalExpense / numPartners : 0;
@@ -404,11 +415,40 @@
       const fBy = $('#fBy');
       by.innerHTML = '';
       fBy.innerHTML = '';
-      const optAny = document.createElement('option'); optAny.value=''; optAny.textContent='All Partners'; fBy.appendChild(optAny);
+      
+      const optDefault = document.createElement('option');
+      optDefault.value = ''; optDefault.textContent = '-- Select Partner --';
+      by.appendChild(optDefault);
+
+      const optAny = document.createElement('option'); 
+      optAny.value=''; optAny.textContent='All Partners'; fBy.appendChild(optAny);
+
       (state.data.partners||[]).forEach(p=>{
         const o = document.createElement('option'); o.value=p.id; o.textContent=p.name; by.appendChild(o);
         const o2 = document.createElement('option'); o2.value=p.id; o2.textContent=p.name; fBy.appendChild(o2);
       });
+      
+      $('#addEntry').disabled = state.data.partners.length === 0 || currentUser.role !== 'admin';
+    }
+
+    function updateUIVisibility() {
+        const isAdmin = currentUser.role === 'admin';
+        $('#adminSettingsCard').classList.toggle('hidden', !isAdmin);
+        $('#addPartnerCard').classList.toggle('hidden', !isAdmin);
+        $('#addEntryCard').classList.toggle('hidden', !isAdmin);
+
+        const loginBtn = $('#adminLoginBtn');
+        const userStatus = $('#userStatus');
+
+        if (isAdmin) {
+            loginBtn.style.display = 'none';
+            userStatus.textContent = 'User: Admin';
+            userStatus.style.background = '#f59e0b';
+        } else {
+            loginBtn.style.display = 'block';
+            userStatus.textContent = 'User: Guest (View Only)';
+            userStatus.style.background = '#10b981';
+        }
     }
 
     function renderPartners(){
@@ -425,10 +465,11 @@
           const tr = document.createElement('tr');
           const netBalance = state.partnerNetBalances[p.id] || 0;
           const balanceClass = netBalance >= 0 ? 'positive' : 'negative';
-          const actions = currentUser.role === 'admin' ? 
-              `<button class="btn secondary" data-act="editP" data-id="${p.id}">Edit</button>
-               <button class="btn danger" data-act="delP" data-id="${p.id}">Delete</button>` :
-              `<span class="muted">No actions</span>`;
+          let actions = '<span class="muted">No actions</span>';
+          if(currentUser.role === 'admin') {
+              actions = `<button class="btn secondary" data-act="editP" data-id="${p.id}">Edit</button>
+                         <button class="btn danger" data-act="delP" data-id="${p.id}">Delete</button>`;
+          }
           tr.innerHTML = `<td>${i+1}</td>
             <td>${p.name}</td>
             <td>${p.role}</td>
@@ -453,14 +494,12 @@
       rows.forEach(e=>{
         const tr = document.createElement('tr');
         const by = state.partnersMap.get(e.by)?.name || '—';
-        const typeTag = e.type==='contribution'?'<span class="tag">Contribution</span>':'<span class="tag">Expense</span>';
+        const typeTag = e.type==='contribution'?'<span class="tag" style="background:#0b2e1a">Contribution</span>':'<span class="tag" style="background:#260a0a">Expense</span>';
         
         let actions = '';
-        if (currentUser.role === 'admin' || e.by === currentUser.id) {
-            actions = `<button class="btn secondary" data-act="editE" data-id="${e.id}">Edit</button>`;
-        }
         if (currentUser.role === 'admin') {
-            actions += `<button class="btn danger" data-act="delE" data-id="${e.id}">Delete</button>`;
+            actions += `<button class="btn secondary" data-act="editE" data-id="${e.id}">Edit</button>
+                        <button class="btn danger" data-act="delE" data-id="${e.id}">Delete</button>`;
         }
         if (!actions) actions = `<span class="muted">No actions</span>`;
 
@@ -483,9 +522,7 @@
         
         const monthlyData = {};
         const categoryData = {};
-        const now = new Date();
-        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
+        
         state.data.entries.forEach(e => {
             const date = e.date || today();
             const month = date.slice(0, 7);
@@ -493,7 +530,7 @@
             monthlyData[month][e.type] += Number(e.amount || 0);
 
             if (e.type === 'expense' && e.category) {
-                const category = e.category.toLowerCase();
+                const category = e.category.toLowerCase().trim();
                 categoryData[category] = (categoryData[category] || 0) + Number(e.amount || 0);
             }
         });
@@ -578,9 +615,9 @@
         const creditors = [];
 
         for (const id in netBalances) {
-            if (netBalances[id] > 0) {
+            if (netBalances[id] > 0.01) {
                 creditors.push({ id, amount: netBalances[id] });
-            } else if (netBalances[id] < 0) {
+            } else if (netBalances[id] < -0.01) {
                 debtors.push({ id, amount: Math.abs(netBalances[id]) });
             }
         }
@@ -613,7 +650,7 @@
             debtor.amount -= transferAmount;
             creditor.amount -= transferAmount;
 
-            if (debtor.amount < 0.01) i++; // Use tolerance for floating point
+            if (debtor.amount < 0.01) i++;
             if (creditor.amount < 0.01) j++;
         }
     }
@@ -629,14 +666,30 @@
     }
 
     // ====== Actions ======
+    function adminLogin() {
+        const password = prompt('Enter Admin Password:');
+        if (password === null) return;
+        const hashedPassword = sha256(password);
+        if (hashedPassword === ADMIN_PASSWORD_HASH) {
+            currentUser = { id: 'admin', role: 'admin' };
+            toast('Admin access granted!');
+            updateUIVisibility();
+            renderAll();
+        } else {
+            toast('Incorrect password.');
+        }
+    }
+
     function addPartner(){
+      if(currentUser.role !== 'admin') return toast('Permission denied. Only admins can add partners.');
       const name = $('#pName').value.trim();
       const note = $('#pNote').value.trim();
       const role = $('#pRole').value;
       if(!name) return toast('नाम आवश्यक है');
       state.data.partners.push({id:uid(), name, note, role, createdAt:new Date().toISOString()});
       $('#pName').value=''; $('#pNote').value='';
-      saveData(); renderAll();
+      saveData();
+      renderAll();
     }
 
     async function addEntry(){
@@ -648,7 +701,8 @@
       const note = $('#eNote').value.trim();
       const file = $('#eFile').files[0];
 
-      if(!amount || amount<=0) return toast('Valid amount डालें');
+      if(currentUser.role !== 'admin') return toast('Permission denied. Only admins can add entries.');
+      if(isNaN(amount) || amount<=0) return toast('Valid amount डालें');
       if(!by) return toast('Paid By चुनें');
 
       let attachmentUrl = '';
@@ -679,14 +733,15 @@
       }
 
       const e = {
-          id:uid(), type, amount, date, by, category, note,
+          id:uid(), type, amount: parseFloat(amount.toFixed(2)), date, by, category, note,
           createdAt:new Date().toISOString(),
           addedBy: currentUser.id,
           attachmentUrl
       };
       state.data.entries.push(e);
       $('#eAmount').value=''; $('#eCat').value=''; $('#eNote').value=''; $('#eFile').value = '';
-      saveData(); renderAll();
+      saveData(); 
+      renderAll();
     }
 
     function editPartner(id){
@@ -696,7 +751,8 @@
       const note = prompt('Update note', p.note||''); if(note===null) return;
       const role = prompt('Update role (admin/member)', p.role||'member'); if(role===null) return;
       p.name = name.trim(); p.note = note.trim(); p.role = role.trim();
-      saveData(); renderAll();
+      saveData();
+      renderAll();
     }
 
     function deletePartner(id){
@@ -705,35 +761,46 @@
       if(used) return toast('Cannot delete: entries exist for this partner');
       if(!confirm('Delete partner?')) return;
       state.data.partners = state.data.partners.filter(x=>x.id!==id);
-      saveData(); renderAll();
+      saveData();
+      renderAll();
     }
 
     function editEntry(id){
       const e = state.data.entries.find(x=>x.id===id); if(!e) return;
-      if(currentUser.role !== 'admin' && e.by !== currentUser.id) return toast('Permission denied.');
+      if(currentUser.role !== 'admin') {
+          return toast('Permission denied. Only admins can edit entries.');
+      }
       
-      const amount = prompt('Amount (₹)', e.amount); if(amount===null) return;
-      const date = prompt('Date (YYYY-MM-DD)', e.date||today()); if(date===null) return;
-      const by = prompt('By (partner id)', e.by||''); if(by===null) return;
-      const category = prompt('Category', e.category||''); if(category===null) return;
-      const note = prompt('Notes', e.note||''); if(note===null) return;
+      const newAmount = prompt('Amount (₹)', e.amount); if(newAmount===null) return;
+      const newDate = prompt('Date (YYYY-MM-DD)', e.date||today()); if(newDate===null) return;
+      const newBy = prompt('By (partner id)', e.by||''); if(newBy===null) return;
+      const newCategory = prompt('Category', e.category||''); if(newCategory===null) return;
+      const newNote = prompt('Notes', e.note||''); if(newNote===null) return;
       
-      Object.assign(e,{
-          amount:parseFloat(amount)||e.amount, date, by, category, note,
-          updatedAt: new Date().toISOString(),
-          updatedBy: currentUser.id
-      });
+      e.amount = parseFloat(newAmount)||e.amount; 
+      e.date = newDate; 
+      e.by = newBy; 
+      e.category = newCategory; 
+      e.note = newNote;
+      e.updatedAt = new Date().toISOString();
+      e.updatedBy = currentUser.id;
+
       saveData(); renderAll();
     }
 
     function deleteEntry(id){
-      if(currentUser.role !== 'admin') return toast('Permission denied.');
+      if(currentUser.role !== 'admin') {
+          return toast('Permission denied. Only admins can delete entries.');
+      }
       if(!confirm('Delete this entry?')) return;
       state.data.entries = state.data.entries.filter(x=>x.id!==id);
       saveData(); renderAll();
     }
 
     function exportJSON(){
+      if(currentUser.role !== 'admin') {
+          return toast('Permission denied. Only admins can export data.');
+      }
       const blob = new Blob([JSON.stringify(state.data,null,2)],{type:'application/json'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -742,6 +809,9 @@
     }
 
     function exportCSV(){
+      if(currentUser.role !== 'admin') {
+          return toast('Permission denied. Only admins can export data.');
+      }
       const rows = [['id','type','amount','date','by','byName','category','note','attachmentUrl','addedBy','createdAt','updatedBy','updatedAt']];
       const map = state.partnersMap;
       (state.data.entries||[]).forEach(e=>{
@@ -773,7 +843,10 @@
     $('#addEntry').addEventListener('click', addEntry);
     $('#resetEntry').addEventListener('click', ()=>{
       $('#eAmount').value=''; $('#eCat').value=''; $('#eNote').value=''; $('#eType').value='contribution'; $('#eDate').value=today();
+      $('#eFile').value = null; // Also reset file input
     });
+
+    $('#adminLoginBtn').addEventListener('click', adminLogin);
 
     $('#partnerSearch').addEventListener('input', renderPartners);
     $('#refreshPartners').addEventListener('click', renderPartners);
@@ -798,6 +871,7 @@
     // ====== Init ======
     (function init(){
       $('#eDate').value = today();
+      updateUIVisibility();
       fetchData();
     })();
   </script>
