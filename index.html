@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bazaarika – Partnership Ledger</title>
+  <style>
+    :root{
+      --bg:#0f172a; --card:#111827; --muted:#94a3b8; --text:#e5e7eb; --accent:#22c55e; --danger:#ef4444; --warn:#f59e0b;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Helvetica,Arial,sans-serif;background:linear-gradient(180deg,#0b1220,#0f172a 30%);color:var(--text)}
+    header{position:sticky;top:0;background:rgba(2,6,23,.8);backdrop-filter:blur(8px);border-bottom:1px solid #1f2937;z-index:2}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px}
+    h1{font-size:clamp(20px,3vw,28px);margin:0}
+    .grid{display:grid;gap:12px}
+    .g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    @media(max-width:840px){.g2{grid-template-columns:1fr}}
+    .card{background:linear-gradient(180deg,#0b1220,#0a1020);border:1px solid #1f2937;border-radius:16px;padding:14px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+    label{font-size:.88rem;color:var(--muted)}
+    input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #263246;background:#0b1220;color:var(--text)}
+    textarea{min-height:64px;resize:vertical}
+    button{cursor:pointer;border:0;border-radius:12px;padding:10px 14px;font-weight:600}
+    .btn{background:linear-gradient(90deg,#22c55e,#16a34a);color:#06110a}
+    .btn.secondary{background:#1f2937;color:#e5e7eb;border:1px solid #374151}
+    .btn.warn{background:linear-gradient(90deg,#f59e0b,#d97706);color:#0b0b0b}
+    .btn.danger{background:linear-gradient(90deg,#ef4444,#dc2626);color:#1b0a0a}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    .row>*{flex:1 1 160px}
+    .kpi{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-radius:12px;background:#0d1526;border:1px solid #21324d}
+    .muted{color:var(--muted)}
+    .tag{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #334155;color:#cbd5e1;font-size:.78rem}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px;border-bottom:1px solid #1f2937;text-align:left}
+    th{position:sticky;top:0;background:#0b1220;z-index:1}
+    tr:hover td{background:#0a1424}
+    .right{text-align:right}
+    .toast{position:fixed;right:16px;bottom:16px;background:#0b1220;border:1px solid #1f2937;padding:12px 14px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.45);opacity:0;transform:translateY(10px);transition:all .25s}
+    .toast.show{opacity:1;transform:none}
+    .pill{border-radius:999px;padding:2px 8px;border:1px solid #334155;background:#0b1220}
+    .footer{color:#94a3b8;font-size:.86rem;margin-top:8px}
+    .danger-text{color:#fecaca}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap row" style="align-items:center;gap:12px">
+      <h1>📒 Bazaarika – Partnership Ledger</h1>
+      <span class="pill" id="status">Disconnected</span>
+      <span class="pill" id="lastSync">Last sync: –</span>
+    </div>
+  </header>
+
+  <main class="wrap grid" style="margin-top:12px">
+    <!-- KPIs -->
+    <section class="grid g2">
+      <div class="card">
+        <div class="row">
+          <div class="kpi"><div>Total Contributions</div><div class="right" id="kpiContrib">₹0</div></div>
+          <div class="kpi"><div>Total Expenses</div><div class="right" id="kpiExpense">₹0</div></div>
+          <div class="kpi"><div>Current Balance</div><div class="right" id="kpiBalance">₹0</div></div>
+        </div>
+        <div class="footer">Calculated from synced data</div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div style="flex:2 1 240px">
+            <label for="blobUrl">JSONBlob URL</label>
+            <input id="blobUrl" value="https://jsonblob.com/api/jsonBlob/1406533281540923392" />
+          </div>
+          <div style="display:flex;gap:8px;align-items:flex-end">
+            <button class="btn secondary" id="btnLoad">Reload</button>
+            <button class="btn" id="btnInit">Initialize</button>
+            <button class="btn warn" id="btnBackup">Export JSON</button>
+            <button class="btn secondary" id="btnCSV">Export CSV</button>
+          </div>
+        </div>
+        <div class="footer">Note: <b>Initialize</b> only if the blob is empty or corrupted (it will not delete valid data).</div>
+      </div>
+    </section>
+
+    <!-- Forms -->
+    <section class="grid g2">
+      <div class="card">
+        <h3 style="margin-top:0">👥 Partner जोड़ें</h3>
+        <div class="row">
+          <div>
+            <label>नाम</label>
+            <input id="pName" placeholder="उदा. Ravi Kumar" />
+          </div>
+          <div>
+            <label>मोबाइल/नोट</label>
+            <input id="pNote" placeholder="उदा. 98xxxxxx / role" />
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn" id="addPartner">Add Partner</button>
+        </div>
+        <div class="footer">Partner जोड़ने के बाद नीचे की सूची में दिखेगा।</div>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">➕ Entry जोड़ें</h3>
+        <div class="row">
+          <div>
+            <label>Type</label>
+            <select id="eType">
+              <option value="contribution">Contribution (जमा)</option>
+              <option value="expense">Expense (खर्च)</option>
+            </select>
+          </div>
+          <div>
+            <label>Amount (₹)</label>
+            <input id="eAmount" type="number" step="0.01" placeholder="1000" />
+          </div>
+          <div>
+            <label>Date</label>
+            <input id="eDate" type="date" />
+          </div>
+        </div>
+        <div class="row">
+          <div>
+            <label>Paid / By</label>
+            <select id="eBy"></select>
+          </div>
+          <div>
+            <label>Category</label>
+            <input id="eCat" placeholder="उदा. Marketing, Rent, Inventory" />
+          </div>
+        </div>
+        <div class="row">
+          <div style="flex:1 1 100%">
+            <label>Notes</label>
+            <textarea id="eNote" placeholder="Short details"></textarea>
+          </div>
+        </div>
+        <div class="row">
+          <button class="btn" id="addEntry">Save Entry</button>
+          <button class="btn secondary" id="resetEntry">Reset</button>
+        </div>
+        <div class="footer">Contribution में दिया गया पैसा पूल में जुड़ता है; Expense में कंपनी के खर्च घटते हैं।</div>
+      </div>
+    </section>
+
+    <!-- Lists -->
+    <section class="card">
+      <div class="row" style="align-items:end">
+        <div>
+          <h3 style="margin:0">👥 Partners</h3>
+          <div class="muted">किसने कितना योगदान किया – संक्षेप</div>
+        </div>
+        <div class="row" style="margin-left:auto;gap:6px">
+          <input id="partnerSearch" placeholder="Search partner" style="max-width:240px" />
+          <button class="btn secondary" id="refreshPartners">Refresh</button>
+        </div>
+      </div>
+      <div style="overflow:auto;margin-top:8px">
+        <table id="partnersTbl">
+          <thead><tr>
+            <th>#</th><th>नाम</th><th>नोट</th><th class="right">Total Contribution (₹)</th><th>Actions</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="row" style="align-items:end">
+        <div>
+          <h3 style="margin:0">📜 Ledger</h3>
+          <div class="muted">सभी एंट्री – फ़िल्टर/सर्च उपलब्ध</div>
+        </div>
+        <div class="row" style="margin-left:auto;gap:6px">
+          <select id="fType" style="max-width:160px">
+            <option value="">All Types</option>
+            <option value="contribution">Contribution</option>
+            <option value="expense">Expense</option>
+          </select>
+          <select id="fBy" style="max-width:200px"></select>
+          <input id="fText" placeholder="Search note/category" style="max-width:260px" />
+          <button class="btn secondary" id="applyFilter">Apply</button>
+          <button class="btn secondary" id="clearFilter">Clear</button>
+        </div>
+      </div>
+      <div style="overflow:auto;margin-top:8px">
+        <table id="ledgerTbl">
+          <thead><tr>
+            <th>Date</th><th>Type</th><th>By</th><th>Category</th><th>Notes</th><th class="right">Amount (₹)</th><th>Actions</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="toast" class="toast">Saved</div>
+
+  <script>
+    // ====== Configuration ======
+    const els = (sel,root=document)=>[...root.querySelectorAll(sel)];
+    const $ = (sel,root=document)=>root.querySelector(sel);
+
+    const state = {
+      data: null,
+      filtered: null,
+      partnersMap: new Map(),
+    };
+
+    function fmtMoney(n){
+      if(isNaN(n)) return '₹0';
+      return '₹'+Number(n).toLocaleString('en-IN', {maximumFractionDigits:2});
+    }
+
+    function uid(){return 'id_'+Math.random().toString(36).slice(2)+Date.now().toString(36)}
+
+    function today(){
+      const d = new Date();
+      const off = d.getTimezoneOffset();
+      const d2 = new Date(d.getTime() - off*60*1000);
+      return d2.toISOString().slice(0,10);
+    }
+
+    function toast(msg){
+      const t = $('#toast');
+      t.textContent = msg; t.classList.add('show');
+      setTimeout(()=>t.classList.remove('show'), 2000);
+    }
+
+    function getBlobUrl(){ return $('#blobUrl').value.trim(); }
+
+    async function fetchData(){
+      const url = getBlobUrl();
+      $('#status').textContent = 'Connecting…';
+      try{
+        const res = await fetch(url, {headers:{'Accept':'application/json'}});
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        const json = await res.json().catch(()=>({}));
+        // Minimal valid structure
+        if(!json || typeof json !== 'object' || !Array.isArray(json.partners) || !Array.isArray(json.entries)){
+          // don't overwrite immediately; just mark as uninitialized
+          state.data = { partners:[], entries:[], meta:{createdAt: new Date().toISOString()} };
+          $('#status').textContent = 'Needs Init';
+          $('#status').style.background = '#1f2937';
+          $('#lastSync').textContent = 'Last sync: structure missing – click Initialize';
+          renderAll();
+          return;
+        }
+        state.data = json;
+        localStorage.setItem('ledger_cache', JSON.stringify(json));
+        $('#status').textContent = 'Connected';
+        $('#status').style.background = '#0b2e1a';
+        $('#lastSync').textContent = 'Last sync: '+ new Date().toLocaleString();
+        renderAll();
+      }catch(err){
+        console.error(err);
+        // Try cache
+        const cache = localStorage.getItem('ledger_cache');
+        if(cache){
+          state.data = JSON.parse(cache);
+          $('#status').textContent = 'Offline (cache)';
+          $('#status').style.background = '#3f1d1d';
+          $('#lastSync').textContent = 'Loaded from cache';
+          renderAll();
+        }else{
+          $('#status').textContent = 'Error';
+          $('#status').style.background = '#3f1d1d';
+          toast('Load failed');
+        }
+      }
+    }
+
+    async function saveData(){
+      const url = getBlobUrl();
+      const body = JSON.stringify(state.data);
+      try{
+        const res = await fetch(url, {method:'PUT', headers:{'Content-Type':'application/json','Accept':'application/json','X-Requested-With':'XMLHttpRequest'}, body});
+        if(!res.ok) throw new Error('HTTP '+res.status);
+        $('#status').textContent = 'Saved';
+        $('#status').style.background = '#0b2e1a';
+        $('#lastSync').textContent = 'Saved: '+ new Date().toLocaleString();
+        localStorage.setItem('ledger_cache', body);
+        toast('Saved to JSONBlob');
+      }catch(err){
+        console.error(err);
+        toast('Save failed');
+      }
+    }
+
+    async function initializeBlob(){
+      if(!confirm('Initialize minimal structure if missing. Existing valid data will NOT be deleted. Continue?')) return;
+      // Pull current first
+      const url = getBlobUrl();
+      let cur = null;
+      try{
+        const res = await fetch(url,{headers:{'Accept':'application/json'}});
+        cur = await res.json().catch(()=>null);
+      }catch{cur=null}
+      if(cur && Array.isArray(cur.partners) && Array.isArray(cur.entries)){
+        toast('Already initialized');
+        state.data = cur; renderAll(); return;
+      }
+      state.data = {partners:[], entries:[], meta:{createdAt:new Date().toISOString(), app:'Bazaarika Ledger v1'}};
+      await saveData();
+      renderAll();
+    }
+
+    // ====== Rendering ======
+    function buildPartnersMap(){
+      state.partnersMap = new Map();
+      (state.data.partners||[]).forEach(p=>state.partnersMap.set(p.id,p));
+    }
+
+    function renderSummary(){
+      const entries = state.data.entries||[];
+      const contrib = entries.filter(e=>e.type==='contribution').reduce((s,e)=>s+Number(e.amount||0),0);
+      const exp = entries.filter(e=>e.type==='expense').reduce((s,e)=>s+Number(e.amount||0),0);
+      $('#kpiContrib').textContent = fmtMoney(contrib);
+      $('#kpiExpense').textContent = fmtMoney(exp);
+      $('#kpiBalance').textContent = fmtMoney(contrib-exp);
+    }
+
+    function renderPartnerSelects(){
+      const by = $('#eBy');
+      const fBy = $('#fBy');
+      by.innerHTML = '';
+      fBy.innerHTML = '';
+      const optAny = document.createElement('option'); optAny.value=''; optAny.textContent='All Partners'; fBy.appendChild(optAny);
+      (state.data.partners||[]).forEach(p=>{
+        const o = document.createElement('option'); o.value=p.id; o.textContent=p.name; by.appendChild(o);
+        const o2 = document.createElement('option'); o2.value=p.id; o2.textContent=p.name; fBy.appendChild(o2);
+      });
+    }
+
+    function renderPartners(){
+      const q = $('#partnerSearch').value.toLowerCase();
+      const tbody = $('#partnersTbl tbody');
+      tbody.innerHTML = '';
+      const totals = new Map();
+      (state.data.entries||[]).filter(e=>e.type==='contribution').forEach(e=>{
+        const k = e.by; totals.set(k,(totals.get(k)||0)+Number(e.amount||0));
+      });
+      (state.data.partners||[])
+        .filter(p=>!q || p.name.toLowerCase().includes(q) || (p.note||'').toLowerCase().includes(q))
+        .forEach((p,i)=>{
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${i+1}</td>
+            <td>${p.name}</td>
+            <td class="muted">${p.note||''}</td>
+            <td class="right">${fmtMoney(totals.get(p.id)||0)}</td>
+            <td>
+              <button class="btn secondary" data-act="editP" data-id="${p.id}">Edit</button>
+              <button class="btn danger" data-act="delP" data-id="${p.id}">Delete</button>
+            </td>`;
+          tbody.appendChild(tr);
+        });
+    }
+
+    function renderLedger(){
+      buildPartnersMap();
+      const tbody = $('#ledgerTbl tbody');
+      tbody.innerHTML = '';
+      const t = $('#fType').value; const b = $('#fBy').value; const txt = $('#fText').value.toLowerCase();
+      const rows = (state.data.entries||[])
+        .filter(e=>!t || e.type===t)
+        .filter(e=>!b || e.by===b)
+        .filter(e=>!txt || (e.note||'').toLowerCase().includes(txt) || (e.category||'').toLowerCase().includes(txt))
+        .sort((a,b)=> (b.date||'').localeCompare(a.date||''));
+      rows.forEach(e=>{
+        const tr = document.createElement('tr');
+        const by = state.partnersMap.get(e.by)?.name || '—';
+        const typeTag = e.type==='contribution'?'<span class="tag">Contribution</span>':'<span class="tag">Expense</span>';
+        tr.innerHTML = `<td>${e.date||''}</td>
+          <td>${typeTag}</td>
+          <td>${by}</td>
+          <td>${e.category||''}</td>
+          <td class="muted">${e.note||''}</td>
+          <td class="right">${fmtMoney(e.amount)}</td>
+          <td>
+            <button class="btn secondary" data-act="editE" data-id="${e.id}">Edit</button>
+            <button class="btn danger" data-act="delE" data-id="${e.id}">Delete</button>
+          </td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderAll(){
+      buildPartnersMap();
+      renderSummary();
+      renderPartnerSelects();
+      renderPartners();
+      renderLedger();
+    }
+
+    // ====== Actions ======
+    function addPartner(){
+      const name = $('#pName').value.trim();
+      const note = $('#pNote').value.trim();
+      if(!name) return toast('नाम आवश्यक है');
+      state.data.partners.push({id:uid(), name, note, createdAt:new Date().toISOString()});
+      $('#pName').value=''; $('#pNote').value='';
+      saveData(); renderAll();
+    }
+
+    function addEntry(){
+      const type = $('#eType').value;
+      const amount = parseFloat($('#eAmount').value);
+      const date = $('#eDate').value || today();
+      const by = $('#eBy').value || '';
+      const category = $('#eCat').value.trim();
+      const note = $('#eNote').value.trim();
+      if(!amount || amount<=0) return toast('Valid amount डालें');
+      if(!by) return toast('Paid By चुनें');
+      const e = {id:uid(), type, amount, date, by, category, note, createdAt:new Date().toISOString()};
+      state.data.entries.push(e);
+      $('#eAmount').value=''; $('#eCat').value=''; $('#eNote').value='';
+      saveData(); renderAll();
+    }
+
+    function editPartner(id){
+      const p = state.data.partners.find(x=>x.id===id); if(!p) return;
+      const name = prompt('Update name', p.name); if(name===null) return;
+      const note = prompt('Update note', p.note||''); if(note===null) return;
+      p.name = name.trim(); p.note = note.trim();
+      saveData(); renderAll();
+    }
+
+    function deletePartner(id){
+      // Prevent delete if entries exist
+      const used = (state.data.entries||[]).some(e=>e.by===id);
+      if(used) return toast('Cannot delete: entries exist for this partner');
+      if(!confirm('Delete partner?')) return;
+      state.data.partners = state.data.partners.filter(x=>x.id!==id);
+      saveData(); renderAll();
+    }
+
+    function editEntry(id){
+      const e = state.data.entries.find(x=>x.id===id); if(!e) return;
+      const amount = prompt('Amount (₹)', e.amount); if(amount===null) return;
+      const date = prompt('Date (YYYY-MM-DD)', e.date||today()); if(date===null) return;
+      const by = prompt('By (partner id)', e.by||''); if(by===null) return;
+      const category = prompt('Category', e.category||''); if(category===null) return;
+      const note = prompt('Notes', e.note||''); if(note===null) return;
+      Object.assign(e,{amount:parseFloat(amount)||e.amount, date, by, category, note});
+      saveData(); renderAll();
+    }
+
+    function deleteEntry(id){
+      if(!confirm('Delete this entry?')) return;
+      state.data.entries = state.data.entries.filter(x=>x.id!==id);
+      saveData(); renderAll();
+    }
+
+    function exportJSON(){
+      const blob = new Blob([JSON.stringify(state.data,null,2)],{type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'bazaarika-ledger.json';
+      a.click();
+    }
+
+    function exportCSV(){
+      const rows = [['id','type','amount','date','by','byName','category','note']];
+      const map = state.partnersMap;
+      (state.data.entries||[]).forEach(e=>{
+        rows.push([e.id,e.type,e.amount,e.date,e.by,(map.get(e.by)?.name||''),e.category||'',(e.note||'').replace(/\n/g,' ')])
+      });
+      const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob = new Blob([csv],{type:'text/csv'});
+      const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='bazaarika-ledger.csv'; a.click();
+    }
+
+    // ====== Events ======
+    $('#btnLoad').addEventListener('click', fetchData);
+    $('#btnInit').addEventListener('click', initializeBlob);
+    $('#btnBackup').addEventListener('click', exportJSON);
+    $('#btnCSV').addEventListener('click', exportCSV);
+
+    $('#addPartner').addEventListener('click', addPartner);
+    $('#addEntry').addEventListener('click', addEntry);
+    $('#resetEntry').addEventListener('click', ()=>{
+      $('#eAmount').value=''; $('#eCat').value=''; $('#eNote').value=''; $('#eType').value='contribution'; $('#eDate').value=today();
+    });
+
+    $('#partnerSearch').addEventListener('input', renderPartners);
+    $('#refreshPartners').addEventListener('click', renderPartners);
+
+    $('#applyFilter').addEventListener('click', renderLedger);
+    $('#clearFilter').addEventListener('click', ()=>{ $('#fType').value=''; $('#fBy').value=''; $('#fText').value=''; renderLedger(); });
+
+    $('#partnersTbl').addEventListener('click', (e)=>{
+      const btn = e.target.closest('button'); if(!btn) return;
+      const id = btn.dataset.id; const act = btn.dataset.act;
+      if(act==='editP') editPartner(id);
+      if(act==='delP') deletePartner(id);
+    });
+
+    $('#ledgerTbl').addEventListener('click', (e)=>{
+      const btn = e.target.closest('button'); if(!btn) return;
+      const id = btn.dataset.id; const act = btn.dataset.act;
+      if(act==='editE') editEntry(id);
+      if(act==='delE') deleteEntry(id);
+    });
+
+    // ====== Init ======
+    (function init(){
+      $('#eDate').value = today();
+      fetchData();
+    })();
+  </script>
+</body>
+</html>
